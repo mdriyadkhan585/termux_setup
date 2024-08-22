@@ -15,7 +15,7 @@ This repository contains a powerful shell script for setting up Termux with a co
 1. **Clone the Repository**
 
    ```bash
-   git clone https://github.com/mdriyadkhan585/termux_setup.git
+   git clone https://github.com/mdriyadkhan585/termux_setup
    cd termux_setup
    ```
 
@@ -62,5 +62,4 @@ Feel free to open issues or submit pull requests if you have suggestions or impr
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-```
 ---
