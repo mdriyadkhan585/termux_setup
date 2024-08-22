@@ -1,0 +1,394 @@
+#!/bin/bash
+
+LOGFILE="termux_setup.log"
+touch $LOGFILE
+
+# Function to print colored text
+print_colored() {
+    echo -e "\033[$2m$1\033[0m"
+}
+
+# Function to show an installation animation with dynamic messages
+show_animation() {
+    local pid=$!
+    local delay=0.1
+    local spinstr='|/-\'
+    local msg="$1"
+    while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
+        local temp=${spinstr#?}
+        printf " [%c] $msg " "$spinstr"
+        spinstr=$temp${spinstr%"$temp"}
+        sleep $delay
+        printf "\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b"
+    done
+    printf "    \b\b\b\b"
+}
+
+# Function to check if a package is installed
+is_package_installed() {
+    local package=$1
+    local os=$2
+    if [ "$os" == "Linux" ]; then
+        if dpkg -l | grep -q "^ii  $package "; then
+            return 0
+        elif dpkg -l | grep -q "^ii  python-$package "; then
+            return 0
+        else
+            return 1
+        fi
+    elif [ "$os" == "Android" ]; then
+        if pkg list-installed | grep -q "^$package "; then
+            return 0
+        elif pip show $package > /dev/null 2>&1 || pip3 show $package > /dev/null 2>&1 || python -m pip show $package > /dev/null 2>&1; then
+            return 0
+        else
+            return 1
+        fi
+    elif [ "$os" == "Docker" ]; then
+        if docker images | grep -q "$package"; then
+            return 0
+        else
+            return 1
+        fi
+    else
+        return 1
+    fi
+}
+
+# Function to remove packages if needed
+remove_package() {
+    local package=$1
+    local os=$2
+    print_colored "Removing $package due to build dependency issues..." "1;31" # Red color
+    if [ "$os" == "Linux" ]; then
+        (sudo apt remove --purge $package -y > /dev/null 2>&1) && {
+            print_colored "$package has been removed." "1;32" # Green color
+            return
+        } || {
+            print_colored "Failed to remove $package." "1;31" # Red color
+        }
+    elif [ "$os" == "Android" ]; then
+        (pkg uninstall $package -y > /dev/null 2>&1) && {
+            print_colored "$package has been removed." "1;32" # Green color
+            return
+        } || {
+            print_colored "Failed to remove $package." "1;31" # Red color
+        }
+    elif [ "$os" == "Docker" ]; then
+        (docker rmi $package > /dev/null 2>&1) && {
+            print_colored "$package Docker image has been removed." "1;32" # Green color
+            return
+        } || {
+            print_colored "Failed to remove Docker image $package." "1;31" # Red color
+        }
+    fi
+    echo "$package removal failed" >> $LOGFILE
+}
+
+# Function to install packages with multi-level attempts based on OS
+install_pkg() {
+    local package=$1
+    local os=$2
+
+    if is_package_installed $package $os; then
+        print_colored "$package is already installed." "1;33" # Yellow color
+        return
+    fi
+
+    if [[ "$package" == "python-"* ]]; then
+        package_name=${package#"python-"}
+        print_colored "Attempting to install Python package $package_name..." "1;36" # Cyan color
+
+        # Attempt to install with various Python package managers
+        (pip install $package_name > /dev/null 2>&1) && {
+            show_animation "Installing $package_name using pip..."
+            print_colored "$package_name installed successfully using pip!" "1;32" # Green color
+            return
+        } || {
+            (pip3 install $package_name > /dev/null 2>&1) && {
+                show_animation "Installing $package_name using pip3..."
+                print_colored "$package_name installed successfully using pip3!" "1;32" # Green color
+                return
+            } || {
+                (python -m pip install $package_name > /dev/null 2>&1) && {
+                    show_animation "Installing $package_name using python -m pip..."
+                    print_colored "$package_name installed successfully using python -m pip!" "1;32" # Green color
+                    return
+                } || {
+                    print_colored "$package_name could not be installed. Python package not found." "1;31" # Red color
+                    echo "$package_name installation failed" >> $LOGFILE
+                    return
+                }
+            }
+        }
+    else
+        print_colored "Preparing to install $package..." "1;36" # Cyan color
+
+        # Attempt to install with various package managers
+        if [ "$os" == "Linux" ]; then
+            (sudo pkg install $package -y > /dev/null 2>&1) && {
+                show_animation "Installing $package using pkg..."
+                print_colored "$package installed successfully using pkg!" "1;32" # Green color
+                return
+            } || {
+                (sudo apt install $package -y > /dev/null 2>&1) && {
+                    show_animation "Installing $package using apt..."
+                    print_colored "$package installed successfully using apt!" "1;32" # Green color
+                    return
+                } || {
+                    (sudo apt-get install $package -y > /dev/null 2>&1) && {
+                        show_animation "Installing $package using apt-get..."
+                        print_colored "$package installed successfully using apt-get!" "1;32" # Green color
+                        return
+                    } || {
+                        print_colored "$package could not be installed. Package not found." "1;31" # Red color
+                        echo "$package installation failed" >> $LOGFILE
+                        return
+                    }
+                }
+            }
+        elif [ "$os" == "Android" ]; then
+            (pkg install $package -y > /dev/null 2>&1) && {
+                show_animation "Installing $package using pkg..."
+                print_colored "$package installed successfully using pkg!" "1;32" # Green color
+                return
+            } || {
+                (apt install $package -y > /dev/null 2>&1) && {
+                    show_animation "Installing $package using apt..."
+                    print_colored "$package installed successfully using apt!" "1;32" # Green color
+                    return
+                } || {
+                    (apt-get install $package -y > /dev/null 2>&1) && {
+                        show_animation "Installing $package using apt-get..."
+                        print_colored "$package installed successfully using apt-get!" "1;32" # Green color
+                        return
+                    } || {
+                        print_colored "$package could not be installed. Package not found." "1;31" # Red color
+                        echo "$package installation failed" >> $LOGFILE
+                        return
+                    }
+                }
+            }
+        elif [ "$os" == "Docker" ]; then
+            print_colored "Attempting to install $package using Docker..." "1;36" # Cyan color
+            (docker pull $package > /dev/null 2>&1) && {
+                show_animation "Pulling Docker image $package..."
+                print_colored "Docker image $package pulled successfully!" "1;32" # Green color
+                return
+            } || {
+                print_colored "$package Docker image could not be pulled. Image not found." "1;31" # Red color
+                echo "$package Docker image pull failed" >> $LOGFILE
+                return
+            }
+        else
+            print_colored "$os not supported for automatic package installation." "1;31" # Red color
+            echo "$package installation failed due to unsupported OS" >> $LOGFILE
+            return
+        fi
+    fi
+
+    # If package installation fails due to dependencies, handle error
+    if grep -q "dependency problems" $LOGFILE; then
+        print_colored "Build dependencies failed for $package." "1;31" # Red color
+        remove_package $package $os
+    fi
+    echo
+}
+
+# Function to detect OS
+detect_os() {
+    if [ "$(uname)" == "Linux" ]; then
+        echo "Linux"
+    elif [ "$(uname)" == "Android" ]; then
+        echo "Android"
+    elif [ "$(uname)" == "Darwin" ]; then
+        echo "macOS"
+    elif [ -f "/.dockerenv" ]; then
+        echo "Docker"
+    else
+        echo "Unknown"
+    fi
+}
+
+# Function to display a progress bar
+progress_bar() {
+    local duration=$1
+    local increment=$((duration / 50))
+    printf "["
+    for i in $(seq 1 50); do
+        printf "#"
+        sleep $increment
+    done
+    printf "]\n"
+}
+
+# Welcome message with animation
+print_colored "Starting Termux setup..." "1;33" # Yellow color
+progress_bar 5
+print_colored "Welcome to the Ultimate Termux Setup!" "1;35" # Magenta color
+echo
+
+# Update and Upgrade Termux
+print_colored "Updating and upgrading Termux..." "1;33" # Yellow color
+(pkg update -y && pkg upgrade -y) & show_animation "Updating Termux..."
+wait
+print_colored "Update and upgrade completed!" "1;32" # Green color
+echo
+
+# Detect OS
+OS=$(detect_os)
+print_colored "Detected OS: $OS" "1;33" # Yellow color
+echo
+
+# Package list
+packages=(
+    "nano"
+    "vim"
+    "git"
+    "wget"
+    "curl"
+    "zip"
+    "unzip"
+    "tar"
+    "busybox"
+    "coreutils"
+    "htop"
+    "tmux"
+    "python"
+    "python2"
+    "tor"
+    "openssl"
+    "nodejs"
+    "npm"
+    "clang"
+    "make"
+    "cmake"
+    "autoconf"
+    "automake"
+    "pkg-config"
+    "gdb"
+    "golang"
+    "rust"
+    "ruby"
+    "perl"
+    "lua"
+    "php"
+    "subversion"
+    "mercurial"
+    "openssh"
+    "rsync"
+    "net-tools"
+    "iproute2"
+    "inetutils"
+    "mtr"
+    "nmap"
+    "socat"
+    "tcpdump"
+    "whois"
+    "dnsutils"
+    "iperf3"
+    "openvpn"
+    "sed"
+    "awk"
+    "grep"
+    "diffutils"
+    "less"
+    "moreutils"
+    "jq"
+    "xmlstarlet"
+    "ranger"
+    "tree"
+    "fd"
+    "fzf"
+    "findutils"
+    "ncdu"
+    "ripgrep"
+    "lsof"
+    "hydra"
+    "john"
+    "sqlmap"
+    "metasploit"
+    "ncrack"
+    "aircrack-ng"
+    "hashcat"
+    "wifite"
+    "gcc"
+    "g++"
+    "fortran"
+    "fpc"
+    "tcc"
+    "sqlite"
+    "mariadb"
+    "postgresql"
+    "redis"
+    "mongodb"
+    "iotop"
+    "sysstat"
+    "termux-api"
+    "fish"
+    "zsh"
+    "pip"
+    "gem"
+    "cargo"
+    "figlet"
+    "toilet"
+    "neofetch"
+    "cowsay"
+    "sl"
+    "lolcat"
+    "fortune"
+    "apache2"
+    "nginx"
+    "lighttpd"
+    "emacs"
+    "micro"
+    "irssi"
+    "weechat"
+    "shellcheck"
+    "pylint"
+    "cppcheck"
+    "gpg"
+    "zlib"
+    "bzip2"
+    "gzip"
+    "xz-utils"
+    "lz4"
+    "ffmpeg"
+    "imagemagick"
+    "sox"
+    "nethack"
+    "moon-buggy"
+    "nsnake"
+    "bastet"
+    "nInvaders"
+    "vitetris"
+    "greed"
+    "openssl"
+    "libgcrypt"
+    "libressl"
+    "nettle"
+    "termux-style"
+    "python-requests"
+    "python-flask"
+    "python-django"
+    "python-beautifulsoup4"
+    "python-selenium"
+    "python-lxml"
+    "sl"
+)
+
+# Install all packages
+for package in "${packages[@]}"; do
+    install_pkg $package $OS
+done
+
+# Final message with rainbow colors
+print_colored "All available packages installed successfully!" "1;32" # Green color
+print_colored "Your Termux setup is now complete!" "1;36" # Cyan color
+print_colored "Happy Hacking!" "1;35" # Magenta color
+sleep 5;
+sl
+# Check if there were any errors during installation
+if grep -q "installation failed" $LOGFILE; then
+    print_colored "Some packages failed to install. Check $LOGFILE for details." "1;31" # Red color
+fi
